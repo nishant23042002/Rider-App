@@ -1,7 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { View, StyleSheet, PermissionsAndroid, Text } from 'react-native';
 import MapView, { Marker } from 'react-native-maps';
-import MaterialIcons from '@react-native-vector-icons/material-icons';
 import { reverseGeocode } from '../services/geocoding';
 import DestinationSearch from '../components/DestinationSearch';
 import { Polyline } from 'react-native-maps';
@@ -9,12 +8,21 @@ import { getRoute } from '../services/directions';
 import Geolocation from '@react-native-community/geolocation';
 import { Animated } from 'react-native';
 
+const PickupSelector = () => (
+  <View style={styles.selectorContainer}>
+    <View style={styles.selectorPin} />
+    <View style={styles.selectorShadow} />
+  </View>
+);
+
 export default function HomeScreen() {
   const [pickupAddress, setPickupAddress] = useState('Fetching location');
   const [destination, setDestination] = useState(null);
+  const [pickupLocked, setPickupLocked] = useState(false)
   const [routeCoords, setRouteCoords] = useState<
     { latitude: number; longitude: number }[]
   >([]);
+  const [pickupConfirmed, setPickupConfirmed] = useState(false);
   const [distance, setDistance] = useState(0);
   const [duration, setDuration] = useState(0);
   const [searchingDriver, setSearchingDriver] = useState(false);
@@ -24,7 +32,6 @@ export default function HomeScreen() {
   const mapRef = useRef<MapView | null>(null);
   const pinAnim = useRef(new Animated.Value(0)).current;
 
-  
   const requestLocationPermission = useCallback(async () => {
     try {
       const granted = await PermissionsAndroid.request(
@@ -37,9 +44,9 @@ export default function HomeScreen() {
           buttonPositive: 'OK',
         },
       );
-      
+
       console.log('LOCATION PERMISSION:', granted);
-      
+
       if (granted === PermissionsAndroid.RESULTS.GRANTED) {
         getUserLocation();
       }
@@ -47,10 +54,11 @@ export default function HomeScreen() {
       console.log('Permission error:', err);
     }
   }, []);
+
   useEffect(() => {
     requestLocationPermission();
   }, [requestLocationPermission]);
-  
+
   const getUserLocation = () => {
     Geolocation.getCurrentPosition(
       position => {
@@ -114,7 +122,8 @@ export default function HomeScreen() {
 
   const handleDestination = async (coords: any) => {
     console.log('🎯 DESTINATION SELECTED:', coords);
-
+    setPickupConfirmed(true);
+    setPickupLocked(true)
     setDestination(coords);
     setSearchingDriver(true);
 
@@ -172,41 +181,53 @@ export default function HomeScreen() {
         showsUserLocation={true}
         showsMyLocationButton={true}
         initialRegion={{
-          latitude: 18.4396,
-          longitude: 73.1185,
+          latitude: 18.4343,
+          longitude: 73.1318,
           latitudeDelta: 0.01,
           longitudeDelta: 0.01,
         }}
         onRegionChangeComplete={region => {
           if (!pickup) return;
+          if(pickupLocked) return;
           handleRegionChangeComplete(region);
         }}
       >
-        {destination && <Marker coordinate={destination} />}
+        {/* PICKUP MARKER AFTER CONFIRM */}
+        {pickupConfirmed && pickup && (
+          <Marker coordinate={pickup}>
+            <View style={styles.pickupMarker} />
+          </Marker>
+        )}
 
+        {/* DESTINATION MARKER */}
+        {destination && (
+          <Marker coordinate={destination}>
+            <View style={styles.destinationMarker} />
+          </Marker>
+        )}
+
+        {/* ROUTE */}
         {routeCoords.length > 0 && (
           <Polyline
             coordinates={routeCoords}
             strokeWidth={6}
-            strokeColor="#0f89f4"
+            strokeColor="#000"
             lineCap="round"
             lineJoin="round"
           />
         )}
       </MapView>
 
-      <DestinationSearch onLocationSelected={handleDestination} />
+      {/* CENTER PICKUP SELECTOR */}
+      {!pickupConfirmed && (
+        <Animated.View
+          style={[styles.pin, { transform: [{ translateY: pinAnim }] }]}
+        >
+          <PickupSelector />
+        </Animated.View>
+      )}
 
-      <Animated.View
-        style={[
-          styles.pin,
-          {
-            transform: [{ translateY: pinAnim }],
-          },
-        ]}
-      >
-        <MaterialIcons name="location-pin" size={40} color="black" />
-      </Animated.View>
+      <DestinationSearch onLocationSelected={handleDestination} />
 
       <View style={styles.addressBox}>
         <Text style={styles.addressText}>{pickupAddress}</Text>
@@ -223,6 +244,7 @@ export default function HomeScreen() {
           </Text>
         </View>
       )}
+
       {searchingDriver && (
         <View style={styles.searchBox}>
           <Text style={styles.searchText}>Searching for drivers...</Text>
@@ -247,6 +269,41 @@ const styles = StyleSheet.create({
     left: '50%',
     marginLeft: -25,
     marginTop: -50,
+  },
+
+  pickupMarker: {
+    width: 16,
+    height: 16,
+    backgroundColor: '#000',
+    borderWidth: 3,
+    borderColor: '#fff',
+  },
+
+  destinationMarker: {
+    width: 16,
+    height: 16,
+    backgroundColor: '#fff',
+    borderWidth: 3,
+    borderColor: '#000',
+  },
+
+  selectorContainer: {
+    alignItems: 'center',
+  },
+
+  selectorPin: {
+    width: 14,
+    height: 28,
+    backgroundColor: '#000',
+    borderRadius: 7,
+  },
+
+  selectorShadow: {
+    width: 12,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: 'rgba(0,0,0,0.2)',
+    marginTop: 2,
   },
 
   addressBox: {
@@ -284,7 +341,7 @@ const styles = StyleSheet.create({
 
   searchBox: {
     position: 'absolute',
-    bottom: 200,
+    bottom: 210,
     left: 20,
     right: 20,
     backgroundColor: 'white',
