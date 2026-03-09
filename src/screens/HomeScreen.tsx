@@ -5,28 +5,35 @@ import {
   PermissionsAndroid,
   Text,
   Easing,
+  Image,
+  Animated,
 } from 'react-native';
-import MapView, { Marker } from 'react-native-maps';
+
+import MapView, { Marker, Polyline, AnimatedRegion } from 'react-native-maps';
+
+import io from 'socket.io-client';
+import { getRhumbLineBearing } from 'geolib';
+
 import { reverseGeocode } from '../services/geocoding';
 import DestinationSearch from '../components/DestinationSearch';
-import { Polyline } from 'react-native-maps';
 import { getRoute } from '../services/directions';
 import Geolocation from '@react-native-community/geolocation';
-import { Animated } from 'react-native';
-import io from 'socket.io-client';
-import MaterialIcons from '@react-native-vector-icons/material-icons';
 
 const socket = io('http://10.0.2.2:5000');
 
-const DriverMarker = () => (
-  <View style={styles.driverMarker}>
-    <MaterialIcons name="directions-car" size={22} color="#fff" />
-  </View>
-);
+const DriverMarker = React.memo(() => {
+  return (
+    <Image
+      source={require('../assets/auto2_2d.png')}
+      style={styles.driverImage}
+      resizeMode="contain"
+    />
+  );
+});
 
 export default function HomeScreen() {
   const [pickupAddress, setPickupAddress] = useState('Fetching location');
-  const [destination, setDestination] = useState(null);
+  const [destination, setDestination] = useState<any>(null);
   const [pickupLocked, setPickupLocked] = useState(false);
   const [routeCoords, setRouteCoords] = useState<
     { latitude: number; longitude: number }[]
@@ -36,12 +43,16 @@ export default function HomeScreen() {
   const [duration, setDuration] = useState(0);
   const [searchingDriver, setSearchingDriver] = useState(false);
   const [pickup, setPickup] = useState<any>(null);
-  const [drivers, setDrivers] = useState<any[]>([]);
+  const [drivers, setDrivers] = useState<Record<string, any>>({});
+  const driverAnimations = useRef<Record<string, AnimatedRegion>>({});
+  const previousDrivers = useRef<Record<string, any>>({});
 
   const mapRef = useRef<MapView | null>(null);
   const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   const pinPosition = useRef(new Animated.Value(0)).current;
   const isMoving = useRef(false);
+
   const [animatedRoute, setAnimatedRoute] = useState<
     { latitude: number; longitude: number }[]
   >([]);
@@ -70,15 +81,70 @@ export default function HomeScreen() {
       if (i >= routeCoords.length) {
         clearInterval(interval);
       }
-    }, 8); // smaller = faster drawing
+    }, 8);
 
     return () => clearInterval(interval);
   }, [routeCoords]);
 
   useEffect(() => {
-    const handler = (driverList: any) => {
-      console.log('🚗 Drivers received:', driverList);
-      setDrivers(driverList);
+    const handler = (driverList: any[]) => {
+      setDrivers(prevDrivers => {
+        const updated = { ...prevDrivers };
+
+        driverList.forEach(driver => {
+          const id = driver.id || driver.driverId;
+
+          const latitude = Number(driver.latitude ?? driver.lat);
+          const longitude = Number(driver.longitude ?? driver.lng);
+
+          const newCoords = { latitude, longitude };
+
+          const prevCoords = previousDrivers.current[id];
+
+          if (
+            prevCoords &&
+            prevCoords.latitude === latitude &&
+            prevCoords.longitude === longitude
+          ) {
+            return;
+          }
+
+          let heading = 0;
+
+          if (prevCoords) {
+            const rawHeading = getRhumbLineBearing(prevCoords, newCoords);
+            heading = (rawHeading + 360) % 360;
+          }
+
+          previousDrivers.current[id] = newCoords;
+
+          if (!driverAnimations.current[id]) {
+            driverAnimations.current[id] = new AnimatedRegion({
+              latitude,
+              longitude,
+              latitudeDelta: 0,
+              longitudeDelta: 0,
+            });
+          } else {
+            (driverAnimations.current[id] as any)
+              .timing({
+                latitude,
+                longitude,
+                duration: 1500,
+                useNativeDriver: false,
+              })
+              .start();
+          }
+
+          updated[id] = {
+            id,
+            heading,
+            coordinate: driverAnimations.current[id],
+          };
+        });
+
+        return updated;
+      });
     };
 
     socket.on('nearbyDrivers', handler);
@@ -87,10 +153,6 @@ export default function HomeScreen() {
       socket.off('nearbyDrivers', handler);
     };
   }, []);
-
-  useEffect(() => {
-    console.log('Drivers state:', drivers);
-  }, [drivers]);
 
   const liftPin = () => {
     Animated.timing(pinPosition, {
@@ -123,8 +185,6 @@ export default function HomeScreen() {
         },
       );
 
-      console.log('LOCATION PERMISSION:', granted);
-
       if (granted === PermissionsAndroid.RESULTS.GRANTED) {
         getUserLocation();
       }
@@ -145,8 +205,6 @@ export default function HomeScreen() {
           longitude: position.coords.longitude,
         };
 
-        console.log('📍 USER LOCATION:', coords);
-
         setPickup(coords);
         setRouteCoords([]);
         setDistance(0);
@@ -156,11 +214,9 @@ export default function HomeScreen() {
         setPickupLocked(false);
         setSearchingDriver(false);
       },
-
       error => {
         console.log('🚨 GEOLOCATION ERROR:', error.code, error.message);
       },
-
       {
         enableHighAccuracy: false,
         timeout: 15000,
@@ -180,8 +236,6 @@ export default function HomeScreen() {
         longitude: region.longitude,
       };
 
-      console.log('📍 FINAL PICKUP:', coords);
-
       setRouteCoords([]);
       setDistance(0);
       setDuration(0);
@@ -191,15 +245,11 @@ export default function HomeScreen() {
       setPickup(coords);
 
       const address = await reverseGeocode(region.latitude, region.longitude);
-
-      console.log('🏠 PICKUP ADDRESS:', address);
-
       setPickupAddress(address);
-    }, 600); // wait 600ms after user stops moving map
+    }, 600);
   };
 
   const handleDestination = async (coords: any) => {
-    console.log('🎯 DESTINATION SELECTED:', coords);
     setPickupConfirmed(true);
     setPickupLocked(true);
     setDestination(coords);
@@ -207,21 +257,12 @@ export default function HomeScreen() {
 
     if (!pickup) return;
 
-    console.log('📡 REQUESTING ROUTE...');
-    console.log('Pickup:', pickup);
-    console.log('Destination:', coords);
-
     const route = await getRoute(pickup, coords);
 
     if (route) {
-      console.log('✅ ROUTE RECEIVED');
+      const correctedRoute = [pickup, ...route.coordinates, coords];
 
-      console.log('📏 Distance (meters):', route.distance);
-      console.log('⏱ Duration (seconds):', route.duration);
-
-      console.log('🗺 Polyline points:', route.coordinates.length);
-
-      setRouteCoords(route.coordinates);
+      setRouteCoords(correctedRoute);
       setDistance(route.distance);
       setDuration(route.duration);
 
@@ -234,8 +275,6 @@ export default function HomeScreen() {
         },
         animated: true,
       });
-    } else {
-      console.log('❌ ROUTE FAILED');
     }
   };
 
@@ -246,6 +285,9 @@ export default function HomeScreen() {
         style={styles.map}
         showsUserLocation
         showsMyLocationButton
+        loadingEnabled
+        provider="google"
+        moveOnMarkerPress={false}
         initialRegion={{
           latitude: 18.4343,
           longitude: 73.1318,
@@ -270,25 +312,26 @@ export default function HomeScreen() {
           handleRegionChangeComplete(region);
         }}
       >
-        {/* PICKUP MARKER AFTER CONFIRM */}
         {pickupConfirmed && pickup && (
-          <Marker coordinate={pickup}>
-            <View style={styles.pickupMarker}>
-              <View style={styles.pickupMarkerInner} />
+          <Marker coordinate={pickup} anchor={{ x: 0.5, y: 1 }}>
+            <View style={styles.markerWrapper}>
+              <View style={styles.pickupMarker}>
+                <View style={styles.pickupMarkerInner} />
+              </View>
             </View>
           </Marker>
         )}
 
-        {/* DESTINATION MARKER */}
         {destination && (
-          <Marker coordinate={destination}>
-            <View style={styles.destinationMarker}>
-              <View style={styles.destinationMarkerInner} />
+          <Marker coordinate={destination} anchor={{ x: 0.5, y: 1 }}>
+            <View style={styles.markerWrapper}>
+              <View style={styles.destinationMarker}>
+                <View style={styles.destinationMarkerInner} />
+              </View>
             </View>
           </Marker>
         )}
 
-        {/* ROUTE */}
         {routeCoords.length > 0 && (
           <>
             <Polyline
@@ -306,21 +349,19 @@ export default function HomeScreen() {
           </>
         )}
 
-        {drivers.map(driver => (
-          <Marker
-            key={driver.id || driver.driverId}
-            coordinate={{
-              latitude: driver.latitude ?? driver.lat,
-              longitude: driver.longitude ?? driver.lng,
-            }}
-            tracksViewChanges={false}
+        {Object.values(drivers).map((driver: any) => (
+          <Marker.Animated
+            key={driver.id}
+            coordinate={driver.coordinate}
+            rotation={driver.heading}
+            anchor={{ x: 0.5, y: 0.5 }}
+            flat
           >
             <DriverMarker />
-          </Marker>
+          </Marker.Animated>
         ))}
       </MapView>
 
-      {/* CENTER PICKUP SELECTOR */}
       {!pickupConfirmed && (
         <Animated.View
           style={[
@@ -367,8 +408,16 @@ export default function HomeScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-
   map: { flex: 1 },
+
+  driverImage: {
+    width: 65,
+    height: 65,
+  },
+
+  markerWrapper: {
+    alignItems: 'center',
+  },
 
   pinContainer: {
     position: 'absolute',
@@ -437,13 +486,6 @@ const styles = StyleSheet.create({
     width: 5,
     height: 5,
     backgroundColor: '#fff',
-  },
-
-  driverMarker: {
-    backgroundColor: '#000',
-    padding: 6,
-    borderRadius: 20,
-    elevation: 4,
   },
 
   addressBox: {
