@@ -109,7 +109,7 @@ export default function RidePreviewScreen() {
     let i = 0;
 
     const interval = setInterval(() => {
-      setAnimatedRoute(routeCoords)
+      setAnimatedRoute(routeCoords);
 
       i++;
 
@@ -332,13 +332,19 @@ export default function RidePreviewScreen() {
 
   const getUserLocation = () => {
     Geolocation.getCurrentPosition(
-      position => {
+      async position => {
         const coords = {
           latitude: position.coords.latitude,
           longitude: position.coords.longitude,
         };
 
         setPickup(coords);
+
+        // reverse geocode current location
+        const address = await reverseGeocode(coords.latitude, coords.longitude);
+
+        setPickupAddress(address);
+
         setRouteCoords([]);
         setDistance(0);
         setDuration(0);
@@ -346,12 +352,20 @@ export default function RidePreviewScreen() {
         setPickupConfirmed(false);
         setPickupLocked(false);
         setSearchingDriver(false);
+
+        // move map to user
+        mapRef.current?.animateToRegion({
+          latitude: coords.latitude,
+          longitude: coords.longitude,
+          latitudeDelta: 0.01,
+          longitudeDelta: 0.01,
+        });
       },
       error => {
         console.log('🚨 GEOLOCATION ERROR:', error.code, error.message);
       },
       {
-        enableHighAccuracy: false,
+        enableHighAccuracy: true,
         timeout: 15000,
         maximumAge: 10000,
       },
@@ -448,7 +462,7 @@ export default function RidePreviewScreen() {
     <View style={styles.container}>
       <View pointerEvents="box-none" style={styles.searchCard}>
         <DestinationSearch
-          placeholder="Pickup location"
+          placeholder={pickupAddress || "Fetching current location..."}
           onLocationSelected={coords => {
             setPickup(coords);
 
@@ -469,8 +483,6 @@ export default function RidePreviewScreen() {
       <MapView
         ref={mapRef}
         style={styles.map}
-        showsUserLocation
-        showsMyLocationButton
         loadingEnabled
         provider="google"
         moveOnMarkerPress={false}

@@ -17,6 +17,7 @@ import { getPlaceDetails } from '../services/placeDetails';
 
 type Props = {
   placeholder?: string;
+  defaultValue?: string;
   onLocationSelected: (coords: {
     latitude: number;
     longitude: number;
@@ -26,9 +27,10 @@ type Props = {
 
 export default function DestinationSearch({
   placeholder = 'Where to?',
+  defaultValue,
   onLocationSelected,
 }: Props) {
-  const [query, setQuery] = useState('');
+  const [query, setQuery] = useState(defaultValue ||'');
   const [results, setResults] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
 
