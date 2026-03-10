@@ -8,13 +8,26 @@ import {
   ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
+  View,
 } from 'react-native';
 
 import axios from 'axios';
 import { searchPlaces } from '../services/places';
 import { getPlaceDetails } from '../services/placeDetails';
 
-export default function DestinationSearch({ onLocationSelected }: any) {
+type Props = {
+  placeholder?: string;
+  onLocationSelected: (coords: {
+    latitude: number;
+    longitude: number;
+    description?: string;
+  }) => void;
+};
+
+export default function DestinationSearch({
+  placeholder = 'Where to?',
+  onLocationSelected,
+}: Props) {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
@@ -46,7 +59,7 @@ export default function DestinationSearch({ onLocationSelected }: any) {
 
         console.log('🔎 Searching:', text);
 
-        const places = await searchPlaces(text, cancelToken?.current.token);
+        const places = await searchPlaces(text, cancelToken.current.token);
 
         console.log('📍 Results:', places.length);
 
@@ -63,7 +76,7 @@ export default function DestinationSearch({ onLocationSelected }: any) {
     }, 500);
   };
 
-  const selectLocation = async (placeId: string) => {
+  const selectLocation = async (placeId: string, description: string) => {
     try {
       console.log('📍 PLACE ID:', placeId);
 
@@ -72,11 +85,15 @@ export default function DestinationSearch({ onLocationSelected }: any) {
       console.log('📍 COORDS:', coords);
 
       if (coords) {
-        onLocationSelected(coords);
+        onLocationSelected({
+          latitude: coords.latitude,
+          longitude: coords.longitude,
+          description,
+        });
       }
 
       setResults([]);
-      setQuery('');
+      setQuery(description);
     } catch (error) {
       console.log('🚨 Place details error:', error);
     }
@@ -89,42 +106,48 @@ export default function DestinationSearch({ onLocationSelected }: any) {
     >
       <TextInput
         style={styles.input}
-        placeholder="Where to?"
+        placeholder={placeholder}
         value={query}
         onChangeText={handleSearch}
       />
 
       {loading && <ActivityIndicator style={{ marginVertical: 10 }} />}
 
-      <FlatList
-        data={results}
-        keyboardShouldPersistTaps="handled"
-        keyExtractor={item => item.place_id}
-        renderItem={({ item }) => (
-          <TouchableOpacity
-            onPress={() => selectLocation(item.place_id)}
-            style={styles.item}
-          >
-            <Text style={styles.title}>
-              {item.structured_formatting.main_text}
-            </Text>
+      {results.length > 0 && (
+        <View style={styles.resultsBox}>
+          <FlatList
+            data={results}
+            keyboardShouldPersistTaps="always"
+            keyExtractor={item => item.place_id}
+            renderItem={({ item }) => (
+              <TouchableOpacity
+                onPress={() =>{
+                  console.log("Item Presseed")
+                  selectLocation(
+                    item.place_id,
+                    item.description || item.structured_formatting.main_text,
+                  )}
+                }
+                style={styles.item}
+              >
+                <Text style={styles.title}>
+                  {item.structured_formatting.main_text}
+                </Text>
 
-            <Text style={styles.subtitle}>
-              {item.structured_formatting.secondary_text}
-            </Text>
-          </TouchableOpacity>
-        )}
-      />
+                <Text style={styles.subtitle}>
+                  {item.structured_formatting.secondary_text}
+                </Text>
+              </TouchableOpacity>
+            )}
+          />
+        </View>
+      )}
     </KeyboardAvoidingView>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
-    position: 'absolute',
-    top: 60,
-    left: 20,
-    right: 20,
     backgroundColor: 'white',
     borderRadius: 12,
     elevation: 5,
@@ -135,6 +158,15 @@ const styles = StyleSheet.create({
     fontSize: 16,
     borderBottomWidth: 1,
     borderColor: '#eee',
+  },
+
+  resultsBox: {
+    maxHeight: 300,
+    backgroundColor: 'white',
+    borderBottomLeftRadius: 12,
+    borderBottomRightRadius: 12,
+    elevation: 10,
+    zIndex: 9999
   },
 
   item: {
