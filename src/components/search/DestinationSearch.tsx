@@ -12,8 +12,8 @@ import {
 } from 'react-native';
 
 import axios from 'axios';
-import { searchPlaces } from '../services/places';
-import { getPlaceDetails } from '../services/placeDetails';
+import { searchPlaces } from '../../services/places';
+import { getPlaceDetails } from '../../services/placeDetails';
 
 type Props = {
   placeholder?: string;

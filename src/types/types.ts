@@ -32,19 +32,7 @@ export type RootStackParamList = {
     duration: number;
   };
 
-  RidePreview: {
-    pickup: {
-      latitude: number;
-      longitude: number;
-      description: string;
-    };
-
-    destination: {
-      latitude: number;
-      longitude: number;
-      description: string;
-    };
-  };
+  RidePreview: undefined;
 
   SearchingDriver: {
     rideId: string;
